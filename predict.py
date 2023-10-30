@@ -190,7 +190,7 @@ class Predictor(BasePredictor):
         masked_out = Path(tempfile.mkdtemp()) / "masked_out.mp4"
         if inpaint_with_propainter:
             inpaint_out = Path(tempfile.mkdtemp()) / "inpaint_out.mp4"
-            # inpaint_out = "inpaint_out.mp4"
+            # git clone https://github.com/sczhou/ProPainter.git beforehand
             command = (
                 "python ProPainter/inference_propainter.py --video "
                 + frames_dir
@@ -198,12 +198,15 @@ class Predictor(BasePredictor):
                 + out_mask_dir
                 + " --output "
                 + inpaint_out_dir
-                + " --masked_output "
-                + str(masked_out)
-                + " --inpaint_output "
-                + str(inpaint_out)
             )
             call(command, shell=True)
+
+            shutil.copy(
+                f"{inpaint_out_dir}/{frames_dir}/inpaint_out.mp4", str(inpaint_out)
+            )
+            shutil.copy(
+                f"{inpaint_out_dir}/{frames_dir}/masked_in.mp4", str(masked_out)
+            )
 
             print("Inpainting finished!")
 
