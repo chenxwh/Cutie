@@ -114,7 +114,10 @@ class Predictor(BasePredictor):
         else:
             sam_out = None
             mask = np.array(Image.open(str(mask)))
-            print(f"Masks detected: {np.unique(mask)}")
+            print(f"Masks detected in provided mask: {np.unique(mask)}")
+            # if there are 2 values in mask we cast it to boolean, otherwise index_numpy_to_one_hot_torch fails later
+            if len(np.unique(mask)) == 2:
+                mask = mask == max(np.unique(mask))
             num_objects = len(np.unique(mask)) - 1
             assert num_objects > 0, "No object detected, please provide a valid mask."
 
@@ -157,8 +160,10 @@ class Predictor(BasePredictor):
                         mask = masks[0].detach().cpu().numpy()[0, 0]
                         Image.fromarray(mask).save(str(sam_out))
 
-                        print(f"Masks detected: {np.unique(mask)}")
                         num_objects = len(np.unique(mask)) - 1
+
+                        print(f"Mask detected by SAM with {num_objects} objects")
+
                         assert (
                             num_objects > 0
                         ), "No object detected, please provide valid coordinates."
@@ -190,7 +195,11 @@ class Predictor(BasePredictor):
                     Image.fromarray(mask_out).save(
                         f"{out_mask_dir}/mask_{padded_idx}.png"
                     )
-                    Image.fromarray(frame).save(f"{frames_dir}/frame_{padded_idx}.png")
+
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    Image.fromarray(frame_rgb).save(
+                        f"{frames_dir}/frame_{padded_idx}.png"
+                    )
 
                     current_frame_index += 1
 
