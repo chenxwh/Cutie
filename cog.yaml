@@ -28,6 +28,7 @@ build:
     - "cchardet== 2.1.7"
     - "easydict==1.10"
     - "av==10.0.0"
+    - "transformers==4.34.1"
   run:
     - pip install imageio[ffmpeg]
     - mkdir -p /root/.cache/torch/hub/checkpoints/ && wget --output-document "/root/.cache/torch/hub/checkpoints/resnet50-19c8e357.pth" "https://download.pytorch.org/models/resnet50-19c8e357.pth"
