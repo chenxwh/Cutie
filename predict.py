@@ -1,5 +1,6 @@
 # Prediction interface for Cog ⚙️
 # https://github.com/replicate/cog/blob/main/docs/python.md
+# Inpaint uses ProPaint, run git clone https://github.com/sczhou/ProPainter.git beforehand
 
 from typing import Optional
 import os
@@ -33,6 +34,7 @@ class ModelOutput(BaseModel):
     masked_out: Path
     inpaint_out: Optional[Path]
     first_mask_with_SAM: Optional[Path]
+    overlay_out: Optional[Path]
 
 
 class Predictor(BasePredictor):
@@ -68,11 +70,13 @@ class Predictor(BasePredictor):
         self,
         video: Path = Input(description="Input video"),
         mask: Path = Input(
-            description="Provide the mask for the first frame. You can leave this blank and use SAM to generate mask below.",
+            description="Provide the mask for the first frame. "
+            "You can leave this blank and use SAM to generate the mask below.",
             default=None,
         ),
         mask_with_SAM: str = Input(
-            description="Use SAM to generate mask, ignored if a mask_file is provided above. Provide coordinates of the obejct of interest in the format of `x | y`.",
+            description="Use SAM to generate mask, ignored if a mask_file is provided above. "
+            "Provide coordinates of the object of interest in the format of `x | y`.",
             default=None,
         ),
         max_frames: int = Input(
@@ -80,13 +84,18 @@ class Predictor(BasePredictor):
             default=None,
         ),
         inpaint_with_propainter: bool = Input(
-            description="Remove the masked objects (inpaint) with ProPainter",
+            description="Remove the masked objects (inpaint) with ProPainter.",
+            default=False,
+        ),
+        show_overlay_video: bool = Input(
+            description="Output the video that overlays the mask on each frame. ",
             default=False,
         ),
     ) -> ModelOutput:
         """Run a single prediction on the model"""
         device = "cuda"
         torch.cuda.empty_cache()
+        self.processor.clear_memory()
 
         coord = None
         if mask is None:
@@ -114,7 +123,7 @@ class Predictor(BasePredictor):
         frame_rate = int(cap.get(cv2.CAP_PROP_FPS))
         current_frame_index = 0
         num_digits = 6
-        image_list = []
+        overlay_image_list, masks_image_list = [], []
 
         out_mask_dir = "out_mask_dir"
         frames_dir = "frames_dir"
@@ -171,13 +180,13 @@ class Predictor(BasePredictor):
 
                     # argmax, convert to numpy
                     prediction = torch_prob_to_numpy_mask(prediction)
-                    visualization = overlay_davis(frame, prediction)
-                    image_list.append(visualization)
-
                     mask_out = color_map_np[prediction]
+                    masks_image_list.append(mask_out)
+                    if show_overlay_video:
+                        visualization = overlay_davis(frame, prediction)
+                        overlay_image_list.append(visualization)
 
                     padded_idx = str(current_frame_index).zfill(num_digits)
-
                     Image.fromarray(mask_out).save(
                         f"{out_mask_dir}/mask_{padded_idx}.png"
                     )
@@ -185,12 +194,17 @@ class Predictor(BasePredictor):
 
                     current_frame_index += 1
 
-        # masked_out = "masked_out.mp4"
-
         masked_out = Path(tempfile.mkdtemp()) / "masked_out.mp4"
+        overlay_out = Path(tempfile.mkdtemp()) / "overlay_out.mp4"
+
+        writer = imageio.get_writer(str(masked_out), format="FFMPEG", fps=frame_rate)
+        for frame in masks_image_list:
+            writer.append_data(frame)
+        writer.close()
+
         if inpaint_with_propainter:
             inpaint_out = Path(tempfile.mkdtemp()) / "inpaint_out.mp4"
-            # git clone https://github.com/sczhou/ProPainter.git beforehand
+
             command = (
                 "python ProPainter/inference_propainter.py --video "
                 + frames_dir
@@ -204,23 +218,28 @@ class Predictor(BasePredictor):
             shutil.copy(
                 f"{inpaint_out_dir}/{frames_dir}/inpaint_out.mp4", str(inpaint_out)
             )
-            shutil.copy(
-                f"{inpaint_out_dir}/{frames_dir}/masked_in.mp4", str(masked_out)
-            )
+            if show_overlay_video:
+                shutil.copy(
+                    f"{inpaint_out_dir}/{frames_dir}/masked_in.mp4", str(overlay_out)
+                )
 
             print("Inpainting finished!")
 
             return ModelOutput(
                 masked_out=masked_out,
+                overlay_out=overlay_out if show_overlay_video else None,
                 first_mask_with_SAM=sam_out if sam_out is not None else None,
                 inpaint_out=inpaint_out,
             )
 
-        writer = imageio.get_writer(masked_out, format="FFMPEG", fps=frame_rate)
-        for frame in image_list:
-            writer.append_data(frame)
-        writer.close()
+        if show_overlay_video:
+            writer = imageio.get_writer(overlay_out, format="FFMPEG", fps=frame_rate)
+            for frame in overlay_image_list:
+                writer.append_data(frame)
+            writer.close()
+
         return ModelOutput(
             masked_out=masked_out,
+            overlay_out=overlay_out if show_overlay_video else None,
             first_mask_with_SAM=sam_out if sam_out is not None else None,
         )
